@@ -1,4 +1,4 @@
-module module_manage_msh
+module module_manage_msh_fcnv
 
 !-----------------------------------------------------------------------
 ! Module to manage MSH (Ansys) files
@@ -14,14 +14,13 @@ module module_manage_msh
 ! write_msh: Write a MSH file
 !-----------------------------------------------------------------------
 
-use module_ALLOC
-use module_files, only: get_unit
-use module_transform, only: to_l1
-use module_mesh
-use module_pmh
-use module_read_msh
-use module_write_msh
-use module_utils_msh
+use basicmod
+use module_transform_fcnv, only: to_l1
+!use module_mesh
+use module_pmh_fcnv
+use module_read_msh_fcnv
+use module_write_msh_fcnv
+use module_utils_msh_fcnv
 
 
 implicit none
@@ -177,7 +176,7 @@ subroutine write_msh(this, pmh)
   rewind(unit=this%unit, iostat=ios)
   if (ios /= 0) call error('msh/read/rewind, #'//trim(string(ios)))
 
-  maxref = 0  
+  maxref = 0
   call write_msh_header(this%unit, pmh, maxtopdim)
   call write_msh_nodes(this%unit, pmh, maxref, z=znod)
   call pmh2msh(this%unit, pmh, maxref, z=znod)

@@ -1,4 +1,4 @@
-module module_msh
+module module_msh_fcnv
 
 !-----------------------------------------------------------------------
 ! Module to manage MSH (Ansys) files
@@ -12,14 +12,11 @@ module module_msh
 ! save_msh: loads a mesh from a MSH format file
 !-----------------------------------------------------------------------
 
-use module_compiler_dependant, only: real64
-use module_os_dependant, only: maxpath
-use module_report
-use module_convers
-use module_mesh
-use module_pmh
-use module_fe_database_pmh
-use module_manage_msh
+use basicmod
+!use module_mesh
+use module_pmh_fcnv
+use module_fe_database_pmh_fcnv
+use module_manage_msh_fcnv
 
 implicit none
 
@@ -40,8 +37,8 @@ subroutine load_msh(filename, pmh)
   type(msh)                             :: u
 
   ! Inital settings
-  call report_option('level', 'stdout')
- 
+  !call report_option('level', 'stdout')
+
   ! Open msh file and reads the mesh
   call info('Reading Ansys MSH file ...')
   call open_msh(u, filename)

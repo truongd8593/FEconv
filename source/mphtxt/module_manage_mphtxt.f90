@@ -1,4 +1,4 @@
-module module_manage_mphtxt
+module module_manage_mphtxt_fcnv
 
 !-----------------------------------------------------------------------
 ! Module to manage MPHTXT (Comsol) files
@@ -14,12 +14,11 @@ module module_manage_mphtxt
 ! write_mphtxt: Write a MPHTXT file
 !-----------------------------------------------------------------------
 
-use module_ALLOC
-use module_files, only: get_unit
-use module_mesh
-use module_read_mphtxt
-use module_write_mphtxt
-use module_utils_mphtxt
+use basicmod
+!use module_mesh
+use module_read_mphtxt_fcnv
+use module_write_mphtxt_fcnv
+use module_utils_mphtxt_fcnv
 
 implicit none
 
@@ -88,9 +87,7 @@ end subroutine
 ! pmh:    PMH structure storing the piecewise mesh
 ! maxdim: max dimension of the PMH pieces
 !-----------------------------------------------------------------------
-
 subroutine read_mphtxt(this, pmh, maxdim)
-
   type(mphtxt), intent(inout) :: this ! mphtxt object
   type(pmh_mesh), intent(inout) :: pmh ! pmh_mesh
   integer, intent(inout) :: maxdim ! dimension detected
@@ -99,26 +96,25 @@ subroutine read_mphtxt(this, pmh, maxdim)
 
   maxdim = 0
   minelindx = 1
-
   rewind(unit=this%unit, iostat=ios)
   if (ios /= 0) call error('mphtxt/read/rewind, #'//trim(string(ios)))
-
   ! Reads the mphtxt file header and allocates the number of pieces
-  call read_mphtxt_header(this%unit, pmh) 
-
-  ! Reads every piece of the mesh and calculate the max of its space dimension
+  call read_mphtxt_header(this%unit, pmh)
   if (.not. allocated(pmh%pc)) call error('mphtxt/read/object, objects not allocated')
+  ! Reads every piece of the mesh
   do i = 1, size(pmh%pc,1)
       call info('Reading piece '//trim(string(i))//' ...')
       call read_mphtxt_object(this%unit, pmh%pc(i))
+      ! Calculate the max of its space dimension
       if (maxdim < pmh%pc(i)%dim) maxdim = pmh%pc(i)%dim
-      ! PMH min reference number si 1
+      ! Calculate the minimum reference number for each FE type, minelindx
       do j = 1, size(pmh%pc(i)%el,1)
         if (minelindx(pmh%pc(i)%el(j)%type) > minval(pmh%pc(i)%el(j)%ref)) then
           minelindx(pmh%pc(i)%el(j)%type) = minval(pmh%pc(i)%el(j)%ref)
         endif
       enddo
   enddo
+  ! Set the minimum reference number for each FE type to 1
   do i = 1, size(pmh%pc,1)
       do j = 1, size(pmh%pc(i)%el,1)
         if(minelindx(pmh%pc(i)%el(j)%type) <=0) then
@@ -126,12 +122,9 @@ subroutine read_mphtxt(this, pmh, maxdim)
         endif
       enddo
   enddo
-
   ! Build mm in modulef style
   call build_vertices(pmh)
-
 end subroutine
-
 
 !-----------------------------------------------------------------------
 ! write_mphtxt(this, pmh): write MPHTXT file
@@ -163,7 +156,7 @@ subroutine write_mphtxt(this, pmh)
     do j = 1, size(pmh%pc(i)%el, 1)
       tp = pmh%pc(i)%el(j)%type
       mphlnn = mphtxt_get_lnn(tp)
-      if(mphlnn >= FEDB(tp)%lnn + 1) then                
+      if(mphlnn >= FEDB(tp)%lnn + 1) then
         ! build element baricenters
         call build_elements_baricenter(pmh%pc(i),i,j,znod)
         if((FEDB(tp)%lnv + FEDB(tp)%lnf) > (FEDB(tp)%lnv))  then

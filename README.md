@@ -1,19 +1,66 @@
 # 1. Description
 
-Program feconv converts finite element (FE) mesh files between several formats; it can also transform the FE type of the mesh and/or perform a bandwidth optimization. Some conversion capabilities are also present for mesh fields. Please, visit the EXAMPLES section, in the help invoked by feconv -h, to know more details.
+FEconv can convert finite element (FE) mesh written in several commercial file formats. It can also transform the FE type and/or perform some bandwidth optimizations. Some conversion capabilities are also present for mesh fields. Please type `feconv -h` and see EXAMPLES section to know more details, or visit the [FEconv help webpage](http://victorsndvg.github.io/FEconv) for more information.
 
 # 2. Installation
 
-To install this program, you must have previously installed make in your system and a Fortran 2003 compiler. At the present time, only the GNU Fortran compiler, gfortran, and the Intel Fortran compiler, ifort, are supported.
-Go to http://sourceforge.net/projects/feconv/ and download the package feconv_<date>.tar.gz, where <date> is the date of the release.
-Open a terminal in Linux or Mac OS X, or a Command Window in Windows, go to the installation folder and type:
+## As a standalone program
 
-        make -f Makefile.<compiler>.<os>
+The prerequisites are: 
+- The program _make_ (for Windows it can be found as _mingw32-make_ in the MinGW distribution).
+- A Fortran 2003 compiler. At the present time, only the GNU Fortran compiler, _gfortran_, and the Intel Fortran compiler, _ifort_, are supported.
+ 
+After install the prerequisites:
+- Go to the [FEconv webpage](https://github.com/victorsndvg/FEconv).
+- Download the compressed file and uncompress it in the installation folder.
+- Open a terminal in Linux or Mac OS X, or a Command Window in Windows, go to the installation folder and type:
+```shell
+  make -f Makefile.<compiler>.<os>
+```
+where 
+ - _&lt;compiler&gt;_  can be _gfortran_ or _ifort_.
+ - _&lt;os&gt;_ can be _linux_, _windows_ or _osx_. For Mac OS X, some Makefiles are provided, indicating which version they were tested for. Be aware that in Windows, MinGW distribution can use _mingw32-make_ instead of _make_.
 
-where <compiler> can be "gfortran" or "ifort" and <os> can be "linux" or "windows" (for Mac OS X, "linux" is the valid option).
+To delete the FEconv executable, its .mod and object files, execute:
+```shell
+  make -f Makefile.<compiler>.<os> clean
+```
 
+To delete the basicmod library, its .mod and object files, execute:
+```shell
+  make -f Makefile.<compiler>.<os> cleanlib
+```
 
-# 3. Supported formats
+## As a library
+
+- The command to execute in the terminal or Command Window is slightly different from the previous one:
+```shell
+  make -f Makefile.makelib.<distribution>.<compiler>.<os>
+```
+where _&lt;distribution&gt;_ can be _static_ or _dynamic_.
+
+The library and the .mod files are automatically moved to folders _lib/_  and _include/_, respectively.
+
+When compiling for several compilers, clean the object files:
+```shell
+  make -f Makefile.makelib.<distribution>.<compiler>.<os> clean
+```
+
+To delete the FEconv (and basicmod) libraries, the .mod and the object files, execute:
+```shell
+  make -f Makefile.makelib.<distribution>.<compiler>.<os> cleanlib
+```
+# 3. Usage
+
+## As a standalone program
+
+Please execute `feconv -h` to see the command line options and some examples of use, or visit the [FEconv help webpage](http://victorsndvg.github.io/FEconv). 
+
+## As a library
+
+Please inspect the folder _testlib/_ to see an example of library use. 
+
+# 4. Supported formats
 ## The available input mesh formats are:
 
     ANSYS (.msh)
@@ -51,9 +98,9 @@ where <compiler> can be "gfortran" or "ifort" and <os> can be "linux" or "window
     Modulef-like Unformatted Field (.muf)
     ANSYS interpolation file (.ip)
 
-# 4. License
+# 5. License
 
-«Copyright 2012 Iban Constenla, Victor Sande, Francisco Pena»
+Copyright (C) 2010-2020 Universidade de Santiago de Compostela
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.

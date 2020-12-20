@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
       "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -54,6 +54,7 @@
       <li><a href="../options.xhtml">Options</a></li>
       <li><a href="../examples.xhtml">Examples</a></li>
       <li><a href="../underconstruction.xhtml">How to contribute</a></li>
+      <li><a href="../refguide.xhtml">Reference guide</a></li>
     </ul>
   </nav>
 
@@ -106,7 +107,7 @@
     <h2 id="feat"><input type="button" onclick="return toggleMe(this,'div2')" class="btn" value="-"/> 2. Features supported by feconv</h2>
 
     <div id="div2">
-    <p>FEconv only supports MPHTXT mesh files with version 0.1 containing serializable mesh objects. </p>
+    <p>FEconv only supports MPHTXT mesh files with version 0.1 containing serializable mesh objects. Moreover, the version of the serializable object Mesh must be 2 or 4.</p>
 
     <h3 id="fetypes"><input type="button" onclick="return toggleMe(this,'div3')" class="btn" value="-"/>  Finite element types</h3>
 
@@ -228,11 +229,11 @@
     <h2 id="fstruc"><input type="button" onclick="return toggleMe(this,'div7')" class="btn" value="-"/>  3. File structure</h2>
 
     <div id="div7">
-    <p>The MPHTXT file format has a global version number. The first entry in each file is the file format, indicating the major and minor file version by two integers.</p>
+    <p>The <a href="http://www.lmn.pub.ro/~daniel/ElectromagneticModelingDoctoral/Books/COMSOL4.3/mph/COMSOLMultiphysicsReferenceGuide.pdf">MPHTXT file format</a> has a global version number. The first entry in each file is the file format, indicating the major and minor file version by two integers.</p>
     <p>After the file version, the file contains a number of tags, stored as strings wich gives an identification for each record stored in the file.</p>
     <p>Then the number of types and, optionally, the serializable object identifiers of this types.</p>
     <p>Finally, MPHTXT file contains objects with the serialized data in the file. The data contained in each object are space dimension, coordinates, element types and connectivities among others. You can see a summary of this data in <a href="#fig-4">Figure 4</a>, obtained from the COMSOL manual.</p>
-
+    <p>By convention, MPHTXT files store strings preceding them by their length. Everything following a # is ignored.</p>
     <p id="fig-4" align="center">
     <img src="../images/mph/mphvars.png" width="50%"/>
     <span class="caption"><p><strong>Figure 4:</strong> Data contained in MPH objects.</p></span>
@@ -246,7 +247,7 @@
   </section>
 
   <footer>
-    <p>&copy; 2012 - <a href="http://www.usc.es/ingmat/?lang=en">Ingeniería Matemática</a></p> 
+    <p>&copy; 2018 <a href="http://www.usc.es">Universidade de Santiago de Compostela</a></p> 
   </footer>
 
 </body>

@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!-- Configuration data file for creamake with gfortran in Linux-->
-<!-- suggested fflags: -std=f2003 -Wall -g -fcheck=all -fbacktrace -fall-intrinsics -->
+<!-- Suggested fflags: -std=f2008 -fall-intrinsics -Wall -fcheck=all -fbacktrace -ggdb -->
 <content>
+
+<prolog>
+BMODLIB = basicmod/lib/libbasicmod.a
+</prolog>
 
 <sources>
 source
-source/basicmod
-source/basicmod/gfortran
-source/basicmod/args
-source/basicmod/alloc
-source/basicmod/vtk
 source/cuthill_mckee
 source/ansys
 source/patran
@@ -23,14 +22,33 @@ source/flux
 source/freefem
 source/fem_extract
 source/gmsh
+source/main
 </sources>
- 
+
+<include>
+$(BMODLIB)
+</include>
+
 <compiler>
 gfortran
 </compiler>
 
 <fflags>
--Wall -ggdb -fcheck=all -fbacktrace -fall-intrinsics 
+-Ibasicmod/include
 </fflags>
 
+<ldflags>
+-static -Lbasicmod/lib -lbasicmod
+</ldflags>
+
+<rules>
+.PHONY: lib cleanlib
+lib: $(BMODLIB)
+
+$(BMODLIB): 
+	${MAKE} -f Makefile.static.gfortran.linux -C basicmod
+
+cleanlib: clean
+	${MAKE} -f Makefile.static.gfortran.linux -C basicmod cleanlib
+</rules>
 </content>

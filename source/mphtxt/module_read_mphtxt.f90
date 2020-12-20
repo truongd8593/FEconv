@@ -1,11 +1,12 @@
-module module_read_mphtxt
+module module_read_mphtxt_fcnv
 
 !-----------------------------------------------------------------------
 ! Module to manage MPHTXT (Comsol) files
 !
 ! Licensing: This code is distributed under the GNU GPL license.
 ! Author: Victor Sande, victor(dot)sande(at)usc(dot)es
-! Last update: 21/02/2014
+! Collaborator: Luis Perez
+! Last update: 26/02/2020
 !
 ! PUBLIC PROCEDURES:
 ! read_mphtxt_header: read the header of the MPHTXT file
@@ -13,14 +14,9 @@ module module_read_mphtxt
 ! read_mphtxt_etype:  read a element group of the MPHTXT mesh
 !-----------------------------------------------------------------------
 
-use module_COMPILER_DEPENDANT, only: real64
-use module_os_dependant, only: maxpath
-use module_report, only:error
-use module_convers
-use module_ALLOC
-use module_mesh
-use module_pmh
-use module_utils_mphtxt
+use basicmod
+use module_pmh_fcnv
+use module_utils_mphtxt_fcnv
 
 implicit none
 
@@ -138,7 +134,7 @@ subroutine read_mphtxt_object(iu, mphtxt_o)
         if (serializable(1) == -1 .and. serializable(2) == -1 .and. serializable(3) == -1 .and. word_count(line,' ') == 3) then
           read(line,*) serializable(1), serializable(2), serializable(3)
           if (.not. (serializable(1) == 0 .or. serializable(1) == 1)) &
-            &call error('mphtxt_file/object, Only versions 0 or 1 supported #'//string(serializable))
+            &call error('mphtxt_file/object, Only object versions 0 or 1 supported #'//string(serializable))
           if (serializable(3) /= 1) call error('mphtxt_file/object, Not serializable object #'//string(serializable))
         ! Object class
         elseif (obj_class == '' .and. word_count(line,' ') == 2) then
@@ -147,6 +143,8 @@ subroutine read_mphtxt_object(iu, mphtxt_o)
         ! Object version
         elseif (version == -1 .and. (word_count(line,' ') == 1)) then
           read(line,*) version
+           if (version /= 2 .and. version /= 4) &
+            &call error('mphtxt_file/object, Only Mesh versions 2 and 4 are supported #'//string(serializable))
         ! Space dimension
         elseif ((mphtxt_o%dim == -1) .and. (word_count(line,' ') == 1)) then
           read(line,*) mphtxt_o%dim
@@ -174,7 +172,7 @@ subroutine read_mphtxt_object(iu, mphtxt_o)
 
     ! Read object element types
     do i = 1, netypes
-      call read_mphtxt_etype(iu, mphtxt_o%el(i), offset)
+      call read_mphtxt_etype(iu, mphtxt_o%el(i), offset, version)
     enddo
 
 end subroutine
@@ -188,11 +186,12 @@ end subroutine
 ! offset:   lowest number of nodes
 !-----------------------------------------------------------------------
 
-subroutine read_mphtxt_etype(iu, mphtxt_t, offset)
+subroutine read_mphtxt_etype(iu, mphtxt_t, offset, version)
 
   integer, intent(in) :: iu ! Unit number for mphtxtfile
   type(elgroup), intent(inout) :: mphtxt_t ! mphtxt mesh
   integer, intent(in) :: offset ! Lowest number of node
+  integer, intent(in) :: version !Mesh version
   character(len=MAXPATH) :: fetype_name ! Object class. Must by 'Mesh'.
   character(len=MAXPATH) :: line
   integer :: aux, i, j,k ,l, m, ios
@@ -216,10 +215,22 @@ subroutine read_mphtxt_etype(iu, mphtxt_t, offset)
     ! Read object header
     do
       read (unit=iu, fmt='(a)', iostat = ios) line
-      if (ios /= 0) call error('mphtxt_file/object/etype, #'//trim(string(ios)))
-
+      if (ios == iostat_end) then ! EOF found
+        if (len_trim(fetype_name) > 0 .and. local_nnodes /= -1 .and. mphtxt_t%nel /= -1 .and. allocated(mphtxt_t%nn)) then
+          ! Basic element information was read before EOF
+          if (.not. allocated(mphtxt_t%ref)) then
+            ! Reference information was not read; set references to 0 and exit
+            allocate(mphtxt_t%ref(mphtxt_t%nel))
+            mphtxt_t%ref = 0
+          end if
+          return
+        else
+          call error('(module_read_mphtxt/read_mphtxt_etype) Basic element information is missing; EOF found')
+        end if
+      elseif (ios /= 0) then ! An error different from EOF was found
+        call error('mphtxt_file/object/etype, #'//trim(string(ios)))
+      end if
       line = trim(line,'#')
-
       if (len_trim(line) /= 0) then ! Discards empty lines
         ! FE type
         if (len_trim(fetype_name) == 0 .and. word_count(line,' ') == 2) then
@@ -241,19 +252,19 @@ subroutine read_mphtxt_etype(iu, mphtxt_t, offset)
           if (i > mphtxt_t%nel) cycle ! Number of parameters already readed.
 
         ! Local number of parameters per element
-        elseif (local_nparam == -1 .and. word_count(line,' ') == 1) then
+        elseif (local_nparam == -1 .and. word_count(line,' ') == 1 .and. version == 2) then
           read(line,*) local_nparam
         ! Number of parameters
-        elseif (nparam == -1 .and. word_count(line,' ') == 1) then
+        elseif (nparam == -1 .and. word_count(line,' ') == 1 .and. version == 2) then
           read(line,*) nparam
           if(nparam == 0) cycle
         ! Parameters
-        elseif ((j <= nparam)) then ! .and. word_count(line,' ') == local_nparam*mphtxt_t%local_nnodes) then
+        elseif (j <= nparam .and. version == 2) then ! .and. word_count(line,' ') == local_nparam*mphtxt_t%local_nnodes) then
           ! Skip
           j = j+1
           if (j > nparam) cycle ! Number of parameters already readed.
 
-        ! Number of geometric indices
+        ! Number of geometric indices, that is, references
         elseif (nindices == -1 .and. word_count(line,' ') == 1) then
           read(line,*) nindices
           allocate(mphtxt_t%ref(nindices))
@@ -261,18 +272,25 @@ subroutine read_mphtxt_etype(iu, mphtxt_t, offset)
         elseif (allocated(mphtxt_t%ref) .and. (k <= nindices) .and. word_count(line,' ') == 1) then
           read(line,*) mphtxt_t%ref(k)
           k = k+1
-          if (k > nindices) cycle ! Number of geometric indices already readed.
-
+          if (k > nindices) then
+            if (version == 2) then
+              cycle ! Number of geometric indices already readed.
+            elseif (version == 4) then
+              exit
+            else
+               call error('(module_read_mphtxt/read_mphtxt_etype) Only mesh version 2 and 4 are supported.') 
+            end if
+          end if  
         ! Number of up/down pairs
-        elseif (nupdownpairs == -1 .and. word_count(line,' ') == 1) then
+        elseif (nupdownpairs == -1 .and. word_count(line,' ') == 1 .and. version == 2) then
           read(line,*) nupdownpairs
           if(nupdownpairs == 0) exit
         ! Up/down pairs
-        elseif ((nupdownpairs == 0) .or. (l <= nupdownpairs .and. word_count(line,' ') == 2)) then
+        elseif ((nupdownpairs == 0) .or. (l <= nupdownpairs .and. word_count(line,' ') == 2) .and. version == 2) then
           ! Skip
           l = l+1
           if (l > nupdownpairs) exit ! Number of up/down pairs already readed. Type readed.
-        else
+        elseif (version == 2) then
           exit
         endif
       endif

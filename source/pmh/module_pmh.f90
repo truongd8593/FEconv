@@ -1,4 +1,4 @@
-module module_pmh
+module module_pmh_fcnv
 !-----------------------------------------------------------------------
 ! Module to manage piecewise meshes (PMH)
 !
@@ -15,12 +15,12 @@ module module_pmh
 !   cell2node: calculate a node field form a cell one
 !   get_field_num_shots: returns the number of shots giving a field name
 !   get_num_shots: returns an array with the number of shots of all fields
-!   get_piece_max_top_dim: returns the maximum topological dimension 
+!   get_piece_max_top_dim: returns the maximum topological dimension
 !   remove_coordinate: reduces the space dimension of the mesh removing the chosen coordinate
-
+!   change_pmh_references: changes pmh references
 !
 ! REMARKS:
-!   A mesh is divided into pieces 
+!   A mesh is divided into pieces
 !   Each piece has common vertices/nodes and it can contain one or several groups of elements
 !   Each group of elements belong to a type of element defined in module_fe_database_pmh
 !   In the group(s) with maximal topological dimension:
@@ -30,23 +30,16 @@ module module_pmh
 !   Variable z always contains vertex coordinates (nodes coordinates can be deduced from z and the element type)
 !   Global numbering starts at 1 for elements, vertices and nodes
 !-----------------------------------------------------------------------
-use module_compiler_dependant, only: real64, output_unit
-use module_os_dependant, only: maxpath
-use module_report, only: error, info
-use module_convers, only: string, int, dble
-use module_alloc, only: alloc, dealloc, set, reduce, sfind, find_first, find_row_sorted, sort, insert, insert_row_sorted, bsearch
-use module_args, only: is_arg, get_post_arg
-use module_feed, only: feed, empty
-use module_fe_database_pmh, only : FEDB, check_fe, VF_WEDG
-use module_set, only: unique
-use module_files, only: get_unit
-use module_set, only: sunique
+use basicmod, only: real64, output_unit, maxpath, error, info, string, int, dble, alloc, dealloc, set, reduce, sfind, &
+                    find_first, find_sorted, sort, insert, insert_sorted, bsearch, is_arg, get_post_arg, feed, empty, &
+                     unique, get_unit, sunique
+use module_fe_database_pmh_fcnv, only : FEDB, check_fe, VF_WEDG
 implicit none
 
 !Types
 
 type field
-  character(maxpath)        :: name 
+  character(maxpath)        :: name
   real(real64), allocatable :: param(:)   !nshot
   real(real64), allocatable :: step(:)    !nshot
   real(real64), allocatable :: val(:,:,:) !ncomp x nnod x nshot
@@ -66,19 +59,19 @@ type piece
   integer                    :: nver = 0 !total number of vertices
   integer                    :: dim  = 0 !space dimension of the node/vertex coordinates
   real(real64),  allocatable :: z(:,:)   !vertex coordinates
-  type(elgroup), allocatable :: el(:)    !element groups  
+  type(elgroup), allocatable :: el(:)    !element groups
   type(field),   allocatable :: fi(:)    !fields on nodes
 end type
 
 type pmh_mesh
   type(piece), allocatable :: pc(:) !pieces that compose the mesh
   real(real64)             :: ztol = epsilon(0._real64) !mesh tolerance
-end type  
+end type
 
 !Constants
 !Tetrahedra used to calculate a sufficient condition to ensure positive Jacobian for an hexahedron
 !(see http://www.math.udel.edu/~szhang/research/p/subtettest.pdf)
-integer, parameter, private :: Pc(32,4) = reshape([ &  
+integer, parameter, private :: Pc(32,4) = reshape([ &
 1, 2, 3, 7,  2, 3, 4, 8,  3, 4, 1, 5,  4, 1, 2, 6,  5, 8, 7, 3,  8, 7, 6, 2,  7, 6, 5, 1,  6, 5, 8, 4,  &
 2, 1, 5, 8,  4, 3, 7, 6,  1, 4, 8, 7,  3, 2, 6, 5,  1, 2, 3, 5,  2, 3, 4, 6,  3, 4, 1, 7,  4, 1, 2, 8,  &
 5, 8, 7, 1,  8, 7, 6, 4,  7, 6, 5, 3,  6, 5, 8, 2,  5, 1, 4, 6,  3, 7, 8, 2,  4, 8, 5, 3,  2, 6, 7, 1,  &
@@ -95,90 +88,95 @@ contains
 !-----------------------------------------------------------------------
 ! save_pmh: save pmh
 !-----------------------------------------------------------------------
-subroutine save_pmh(filename, pmh, with_values)
-character(*),   intent(in) :: filename !mesh filename
-type(pmh_mesh), intent(in) :: pmh      !pmh structure
-logical, optional          :: with_values
-integer                    :: iu       !file unit
-logical :: wv
-integer :: i, j, k, ip, ig, ios
-
-wv = .true.
-if (present(with_values)) wv = with_values
-
-if(wv) then
-  iu = get_unit()
-  open (unit=iu, file=filename, form='formatted', position='rewind', iostat=ios)
-  if (ios /= 0) call error('module_pmh/save_pmh: open error #'//trim(string(ios)))
-else
-  iu = output_unit
-endif
-write(iu, '(a/)') '<?xml version="1.0" encoding="UTF-8" ?>'
-write(iu, '(a)') '<pmh>'
-do ip = 1, size(pmh%pc,1)
-  write(iu, '(2x,a)') '<piece name="'//trim(string(ip))//'">'
-  write(iu, '(4x,a)') '<nnod> '//trim(string(pmh%pc(ip)%nnod))//' </nnod>'
-  write(iu, '(4x,a)') '<nver> '//trim(string(pmh%pc(ip)%nver))//' </nver>'
-  write(iu, '(4x,a)')  '<dim> '//trim(string(pmh%pc(ip)%dim))//' </dim>'
-  if(wv) then
-    write(iu, '(4x,a)') '<z>'
-    do k = 1, pmh%pc(ip)%nver; do j = 1, pmh%pc(ip)%dim; call feed(iu, string(pmh%pc(ip)%z(j,k))); end do; end do; call empty(iu)
-    write(iu, '(4x,a)') '</z>'
-  endif
-  do ig = 1, size(pmh%pc(ip)%el,1)
-    associate(elg => pmh%pc(ip)%el(ig), tp => pmh%pc(ip)%el(ig)%type)
-      write(iu, '(4x,a)') '<element_group name="'//trim(string(ig))//'">'
-      write(iu, '(6x,a)')  '<nel> '//trim(string(elg%nel))//' </nel>'
-      write(iu, '(6x,a)') '<type> '//trim(string(elg%type))//' </type>'
-      write(iu, '(6x,a)') '<desc>'
-      write(iu,    '(a)') trim(FEDB(elg%type)%desc)
-      write(iu, '(6x,a)') '</desc>'
-
-      if(wv) then
-        if (allocated(elg%nn)) then
-          write(iu, '(6x,a)') '<nn>'
-          do k = 1, elg%nel; do i = 1, FEDB(tp)%lnn; call feed(iu, string(elg%nn(i,k))); end do; end do; call empty(iu)
-          write(iu, '(6x,a)') '</nn>'
-        end if
-        write(iu, '(6x,a)') '<mm>'
-        do k = 1, elg%nel; do i = 1, FEDB(tp)%lnv; call feed(iu, string(elg%mm(i,k))); end do; end do; call empty(iu)
-        write(iu, '(6x,a)') '</mm>'
-        write(iu, '(6x,a)') '<ref>'
-        do k = 1, elg%nel; call feed(iu, string(elg%ref(k))); end do; call empty(iu)
-        write(iu, '(6x,a)') '</ref>'
-      endif
-      write(iu, '(4x,a)') '</element_group>'
-    end associate
-  end do
-  write(iu, '(2x,a)') '</piece>'
-end do
-write(iu, '(a)') '</pmh>'
-if(wv) close(iu)
-end subroutine
-
+!subroutine save_pmh(filename, pmh, with_values)
+!character(*),   intent(in) :: filename !mesh filename
+!type(pmh_mesh), intent(in) :: pmh      !pmh structure
+!logical, optional          :: with_values
+!integer                    :: iu       !file unit
+!logical :: wv
+!integer :: i, j, k, ip, ig, ios
+! 
+!wv = .true.
+!if (present(with_values)) wv = with_values
+! 
+!if(wv) then
+!  iu = get_unit()
+!  open (unit=iu, file=filename, form='formatted', position='rewind', iostat=ios)
+!  if (ios /= 0) call error('module_pmh/save_pmh: open error #'//trim(string(ios)))
+!else
+!  iu = output_unit
+!endif
+!write(iu, '(a/)') '<?xml version="1.0" encoding="UTF-8" ?>'
+!write(iu, '(a)') '<pmh>'
+!do ip = 1, size(pmh%pc,1)
+!  write(iu, '(2x,a)') '<piece name="'//trim(string(ip))//'">'
+!  write(iu, '(4x,a)') '<nnod> '//trim(string(pmh%pc(ip)%nnod))//' </nnod>'
+!  write(iu, '(4x,a)') '<nver> '//trim(string(pmh%pc(ip)%nver))//' </nver>'
+!  write(iu, '(4x,a)')  '<dim> '//trim(string(pmh%pc(ip)%dim))//' </dim>'
+!  if(wv) then
+!    write(iu, '(4x,a)') '<z>'
+!    do k = 1, pmh%pc(ip)%nver; do j = 1, pmh%pc(ip)%dim; call feed(iu, string(pmh%pc(ip)%z(j,k))); end do; end do; call empty(iu)
+!    write(iu, '(4x,a)') '</z>'
+!  endif
+!  do ig = 1, size(pmh%pc(ip)%el,1)
+!    associate(elg => pmh%pc(ip)%el(ig), tp => pmh%pc(ip)%el(ig)%type)
+!      write(iu, '(4x,a)') '<element_group name="'//trim(string(ig))//'">'
+!      write(iu, '(6x,a)')  '<nel> '//trim(string(elg%nel))//' </nel>'
+!      write(iu, '(6x,a)') '<type> '//trim(string(elg%type))//' </type>'
+!      write(iu, '(6x,a)') '<desc>'
+!      write(iu,    '(a)') trim(FEDB(elg%type)%desc)
+!      write(iu, '(6x,a)') '</desc>'
+! 
+!      if(wv) then
+!        if (allocated(elg%nn)) then
+!          write(iu, '(6x,a)') '<nn>'
+!          do k = 1, elg%nel; do i = 1, FEDB(tp)%lnn; call feed(iu, string(elg%nn(i,k))); end do; end do; call empty(iu)
+!          write(iu, '(6x,a)') '</nn>'
+!        end if
+!        write(iu, '(6x,a)') '<mm>'
+!        do k = 1, elg%nel; do i = 1, FEDB(tp)%lnv; call feed(iu, string(elg%mm(i,k))); end do; end do; call empty(iu)
+!        write(iu, '(6x,a)') '</mm>'
+!        write(iu, '(6x,a)') '<ref>'
+!        do k = 1, elg%nel; call feed(iu, string(elg%ref(k))); end do; call empty(iu)
+!        write(iu, '(6x,a)') '</ref>'
+!      endif
+!      write(iu, '(4x,a)') '</element_group>'
+!    end associate
+!  end do
+!  write(iu, '(2x,a)') '</piece>'
+!end do
+!write(iu, '(a)') '</pmh>'
+!if(wv) close(iu)
+!end subroutine
 
 !-----------------------------------------------------------------------
 ! save_pmh: save pmh
 !-----------------------------------------------------------------------
-subroutine save_pmh2(filename, pmh, with_values)
-character(*),   intent(in) :: filename !mesh filename
-type(pmh_mesh), intent(in) :: pmh      !pmh structure
-logical, optional          :: with_values
-integer                    :: iu       !file unit
+subroutine save_pmh(pmh, filename, with_values)
+!! Prints or saves a PMH structure.  
+!! 
+!! When argument `with_values' is true or not present, the PMH structure is completely saved in `filename`; 
+!! otherwise, the scalar data of the structure is printed (and `filename` is not used).  
+!!
+!! @note The renovated version of this procedure takes into account the PMH fields. It also includes scalar data as attibutes in 
+!! tags  `piece`, `field`, `element_group`. For example,  
+!! `<piece name="1" nnod="2236" nver="2155" dim="3">`  
+type(pmh_mesh),         intent(in) :: pmh         !! Input PMH structure
+character(*), optional, intent(in) :: filename    !! Output filename.
+logical,      optional, intent(in) :: with_values !! Whether the arrays values are preinted or not.
+integer :: iu
 logical :: wv
 integer :: i, j, k, ip, ig, ifi, ios
 
 wv = .true.
 if (present(with_values)) wv = with_values
 
-if(.not. wv) call info('Filename: '//trim(adjustl(filename)))
-
-if(wv) then
+iu = output_unit
+if (wv) then
   iu = get_unit()
+  if (.not. present(filename)) call error('(module_pmh::save_pmh) filename  not present.')
   open (unit=iu, file=filename, form='formatted', position='rewind', iostat=ios)
   if (ios /= 0) call error('module_pmh/save_pmh: open error #'//trim(string(ios)))
-else
-  iu = output_unit
 endif
 write(iu, '(a/)') '<?xml version="1.0" encoding="UTF-8" ?>'
 write(iu, '(a)') '<pmh>'
@@ -207,12 +205,10 @@ do ip = 1, size(pmh%pc,1)
                                      & '" nel="'//trim(string(elg%nel))//&
                                      & '" type="'//trim(string(elg%type))//'">'
       write(iu, '(6x,a)') '<desc> '//trim(FEDB(elg%type)%desc)//' </desc>'
-
       if(wv) then
         if (allocated(elg%nn)) then
           write(iu, '(6x,a)') '<nn>'
           do k = 1, elg%nel; do i = 1, FEDB(tp)%lnn; call feed(iu, string(elg%nn(i,k))); end do; end do; call empty(iu)
-
           write(iu, '(6x,a)') '</nn>'
         end if
         write(iu, '(6x,a)') '<mm>'
@@ -247,19 +243,19 @@ end subroutine
 !-----------------------------------------------------------------------
 subroutine pmh2mfm(pmh, nel, nnod, nver, dim, lnn, lnv, lne, lnf, nn, mm, nrc, nra, nrv, z, nsd)
 type(pmh_mesh), intent(inout) :: pmh
-integer, intent(inout) :: nel, nnod, nver, dim, lnn, lnv, lne, lnf 
+integer, intent(inout) :: nel, nnod, nver, dim, lnn, lnv, lne, lnf
 integer, allocatable   :: nn(:,:), mm(:,:), nrv(:,:), nra(:,:), nrc(:,:), nsd(:)
 real(real64), allocatable :: z(:,:)
 
 integer :: i, ipp, ip, ig, pos, k, prev_nel, n, j, type_by_tdim(0:3), tmp_2d(2), tmp_3d(3), &
-prev_max_tdim, res, max_tdim, valid_fe(12)
+prev_max_tdim, res, max_tdim, valid_fe(13)
 integer, allocatable :: piece2save(:), ref(:,:), tmp_vf(:), nel_piece(:), nnod_piece(:), nver_piece(:)
 logical :: ft(2) = [.false.,.true.]
 character(maxpath) :: str, cad
 
 !valid elements types to save a MFM mesh (all but wedges)
 valid_fe = [check_fe(.true.,   1, 1,  0, 0), & !Node
-            check_fe(.true.,   2, 2,  1, 0), & !Edge, Lagrange P1 
+            check_fe(.true.,   2, 2,  1, 0), & !Edge, Lagrange P1
             check_fe(.false.,  3, 2,  1, 0), & !Edge, Lagrange P2
             check_fe(.true.,   3, 3,  3, 0), & !Triangle, Lagrange P1
             check_fe(.false.,  6, 3,  3, 0), & !Triangle, Lagrange P2
@@ -269,6 +265,7 @@ valid_fe = [check_fe(.true.,   1, 1,  0, 0), & !Node
             check_fe(.false., 10, 4,  6, 4), & !Tetrahedron, Lagrange P2
             check_fe(.false.,  4, 4,  6, 4), & !Tetrahedron, Raviart-Thomas (face)
             check_fe(.false.,  6, 4,  6, 4), & !Tetrahedron, Nedelec (edge)
+            check_fe(.false., 20, 4,  6, 4), & !Tetrahedron, Nedelec (edge) order 2
             check_fe(.true.,   8, 8, 12, 6)]   !Hexahedron, Lagrange P1
 
 !check piece(s) to be saved
@@ -280,7 +277,7 @@ else !save all pieces
   call alloc(piece2save, size(pmh%pc,1))
   piece2save = [(i, i=1, size(pmh%pc,1))]
 end if
-if (is_arg('-glue')) then 
+if (is_arg('-glue')) then
   call info('(module_pmh/pmh2mfm) option -glue not implemented yet')
 end if
 
@@ -297,9 +294,9 @@ do ipp = 1, size(piece2save,1)
         call info('(module_pmh/pmh2mfm) element type '//trim(FEDB(tp)%desc)//' found; those elements cannot be saved'//&
         &' in MFM format and they will be discarded')
         cycle
-      end if  
+      end if
       !check whether there is only one type of element for each topological dimension
-      if (type_by_tdim( FEDB(tp)%tdim ) == 0) then  
+      if (type_by_tdim( FEDB(tp)%tdim ) == 0) then
         type_by_tdim( FEDB(tp)%tdim ) = tp
       elseif (type_by_tdim( FEDB(tp)%tdim ) /= tp) then
         call error('(module_pmh/pmh2mfm) more that one type of element is defined for the same topological dimension: '//&
@@ -307,11 +304,11 @@ do ipp = 1, size(piece2save,1)
       end if
     end associate
   end do
-  max_tdim = 0 
+  max_tdim = 0
   do i = 1, 3
     if (type_by_tdim(i) > 0) max_tdim  = i
   end do
-  if (prev_max_tdim == 0) then  
+  if (prev_max_tdim == 0) then
     prev_max_tdim = max_tdim
   elseif (prev_max_tdim /= max_tdim) then
     call error('(module_pmh/pmh2mfm) there are pieces with different maximal topological dimension; unable to convert to MFM')
@@ -323,7 +320,7 @@ dim = -1
 do ipp = 1, size(piece2save,1)
   ip = piece2save(ipp)
   !check whether there is only one coordinates dimension for all pieces
-  if (dim == -1) then  
+  if (dim == -1) then
     dim = pmh%pc(ip)%dim
   elseif (pmh%pc(ip)%dim /= dim) then
     call error('(module_pmh/pmh2mfm) different coordinates dimensions in different pieces: '//&
@@ -333,7 +330,7 @@ end do
 
 !save MFM variables (lnn, lnv, lne, lnf) for selected pieces
 !(previous testing ensure that lnn, lnv, etc., are the same for each piece)
-lnn  = FEDB(type_by_tdim(max_tdim))%lnn 
+lnn  = FEDB(type_by_tdim(max_tdim))%lnn
 lnv  = FEDB(type_by_tdim(max_tdim))%lnv
 lne  = FEDB(type_by_tdim(max_tdim))%lne
 lnf  = FEDB(type_by_tdim(max_tdim))%lnf
@@ -353,7 +350,7 @@ do ipp = 1, size(piece2save,1)
   ip = piece2save(ipp)
   nnod_piece(ipp) = nnod_piece(ipp-1) + pmh%pc(ip)%nnod
   nver_piece(ipp) = nver_piece(ipp-1) + pmh%pc(ip)%nver
-  nel_piece(ipp)  =  nel_piece(ipp-1) 
+  nel_piece(ipp)  =  nel_piece(ipp-1)
   do ig = 1, size(pmh%pc(ip)%el, 1)
     associate(elg => pmh%pc(ip)%el(ig)) !elg: current group
       if (find_first(valid_fe, elg%type) == 0) cycle
@@ -433,7 +430,7 @@ if (max_tdim > 0) then
         if (FEDB( elg%type )%tdim == 0) then
           do k = 1, elg%nel
             tmp_2d = [nver_piece(ipp-1) + elg%mm(1,k), elg%ref(k)]
-            call insert_row_sorted(ref, tmp_2d, used=n, fit=ft)
+            call insert_sorted(1, ref, tmp_2d, used=n, fit=ft)
           end do
           call dealloc(elg%ref)
         end if
@@ -466,9 +463,9 @@ if (max_tdim > 1) then
         if (FEDB( elg%type )%tdim == 1) then
           do k = 1, elg%nel
             tmp_3d = [sort(nver_piece(ipp-1) + elg%mm(1:2,k)), elg%ref(k)]
-            call insert_row_sorted(ref, tmp_3d, used=n, fit=ft)
+            call insert_sorted(1, ref, tmp_3d, used=n, fit=ft)
           end do
-          call dealloc(elg%ref)          
+          call dealloc(elg%ref)
         end if
       end associate
     end do
@@ -478,11 +475,11 @@ if (max_tdim > 1) then
       do k = nel_piece(ipp-1)+1, nel_piece(ipp)
         do j = 1, FEDB(type_by_tdim(max_tdim))%lne
           tmp_2d = sort(mm(FEDB(type_by_tdim(max_tdim))%edge(:,j),k))
-          pos = find_row_sorted(ref, tmp_2d, n)
+          pos = find_sorted(1, ref, tmp_2d, n)
           if (pos > 0) nra(j,k) = ref(pos, 3)
         end do
       end do
-      call dealloc(ref)    
+      call dealloc(ref)
     end if
   end do
 end if
@@ -501,7 +498,7 @@ if (max_tdim > 2) then
           if (FEDB( elg%type )%tdim == 2 .and. FEDB(elg%type)%lnv == v_f) then
             do k = 1, elg%nel
               tmp_vf = [sort(nver_piece(ipp-1) + elg%mm(1:v_f, k)), elg%ref(k)]
-              call insert_row_sorted(ref, tmp_vf, used=n, fit=ft)
+              call insert_sorted(1, ref, tmp_vf, used=n, fit=ft)
             end do
             call dealloc(elg%ref)
           end if
@@ -514,13 +511,13 @@ if (max_tdim > 2) then
         do k = nel_piece(ipp-1)+1, nel_piece(ipp)
           do j = 1, FEDB(type_by_tdim(max_tdim))%lnf
             tmp_vf = sort(mm(FEDB(type_by_tdim(max_tdim))%face(1:v_f, j), k))
-            pos = find_row_sorted(ref, tmp_vf, n)
+            pos = find_sorted(1, ref, tmp_vf, n)
             if (pos > 0) nrc(j,k) = ref(pos, v_f+1)
           end do
         end do
         call dealloc(ref)
       end if
-    end associate  
+    end associate
   end do
 end if
 
@@ -533,20 +530,24 @@ do ipp = 1, size(piece2save,1)
 end do
 end subroutine
 
-
-
 !-----------------------------------------------------------------------
 ! mfm2pmh: convert a MFM mesh into a PMH structure
 !
 ! mfm is deallocated while PMH variables are being allocated
 !-----------------------------------------------------------------------
-subroutine mfm2pmh(nel, nnod, nver, dim, lnn, lnv, lne, lnf, nn, mm, nrc, nra, nrv, z, nsd, pmh)
+subroutine mfm2pmh(nel, nnod, nver, dim, lnn, lnv, lne, lnf, nn, mm, nrc, nra, nrv, z, nsd, pmh, deallocation)
 type(pmh_mesh), intent(inout) :: pmh
-integer, intent(inout) :: nel, nnod, nver, dim, lnn, lnv, lne, lnf 
+integer, intent(inout) :: nel, nnod, nver, dim, lnn, lnv, lne, lnf
 integer, allocatable   :: nn(:,:), mm(:,:), nrv(:,:), nra(:,:), nrc(:,:), nsd(:)
 real(real64), allocatable :: z(:,:)
+logical, optional, intent(in) :: deallocation
 integer :: res, tp, nelg, iel, ic, j, k
 character(maxpath) :: cad
+logical :: deall
+
+!whether or not to deallocate the MFM variables (.true. by default)
+deall = .true.
+if (present(deallocation)) deall = deallocation
 
 !allocate piece, pmh%pc
 if (allocated(pmh%pc)) then
@@ -559,13 +560,18 @@ if (allocated(pmh%pc)) then
 else
   allocate(pmh%pc(1), stat = res, errmsg = cad)
   if (res /= 0) call error('(module_pmh/pmh2mfm) Unable to allocate piece: '//trim(cad))
-end if  
+end if
 
 !save PMH variables (nnod, nver, dim, z)
 pmh%pc(1)%nnod = nnod
 pmh%pc(1)%nver = nver
 pmh%pc(1)%dim  = dim
-call move_alloc(from=z, to=pmh%pc(1)%z)
+if (deall) then
+  call move_alloc(from=z, to=pmh%pc(1)%z)
+else
+  call alloc(pmh%pc(1)%z, size(z,1), size(z,2))
+  pmh%pc(1)%z = z
+end if
 
 !nelg: calculate the number of element groups to create
 tp = check_fe(nver==nnod, lnn, lnv, lne, lnf)
@@ -583,8 +589,8 @@ if (FEDB(tp)%tdim > 1) then
   if (maxval(nra)==0) nelg = nelg-1
 end if
 if (maxval(nrv)==0) nelg = nelg-1
-   
-!allocate element groups, pmh%pc(1)%el   
+
+!allocate element groups, pmh%pc(1)%el
 if (allocated(pmh%pc(1)%el)) then
   if (size(pmh%pc(1)%el,1) /= nelg) then
     deallocate(pmh%pc(1)%el, stat = res, errmsg = cad)
@@ -601,9 +607,15 @@ end if
 associate (elg => pmh%pc(1)%el(nelg)) !elg: current element group
   elg%nel = nel
   elg%type = tp
-  call move_alloc(from=nn,  to=pmh%pc(1)%el(nelg)%nn)
-  call move_alloc(from=mm,  to=pmh%pc(1)%el(nelg)%mm)
-  call move_alloc(from=nsd, to=pmh%pc(1)%el(nelg)%ref)
+  if (deall) then
+    call move_alloc(from=nn,  to=pmh%pc(1)%el(nelg)%nn)
+    call move_alloc(from=mm,  to=pmh%pc(1)%el(nelg)%mm)
+    call move_alloc(from=nsd, to=pmh%pc(1)%el(nelg)%ref)
+  else
+    call alloc(pmh%pc(1)%el(nelg)%nn, size(nn,1), size(nn,2)); pmh%pc(1)%el(nelg)%nn  = nn
+    call alloc(pmh%pc(1)%el(nelg)%mm, size(mm,1), size(mm,2)); pmh%pc(1)%el(nelg)%mm  = mm
+    call alloc(pmh%pc(1)%el(nelg)%ref, size(nsd,1));           pmh%pc(1)%el(nelg)%ref = nsd
+  end if
 end associate
 iel = nelg - 1
 
@@ -616,8 +628,8 @@ if (FEDB(tp)%tdim > 2) then
       !in faces, nn is only relevant for Lagrange P2
       if (FEDB(elg%type)%lnn == FEDB(elg%type)%lnv + FEDB(elg%type)%lne) &
       call alloc(elg%nn, FEDB(elg%type)%lnn, elg%nel)
-      call alloc(elg%mm, FEDB(elg%type)%lnv, elg%nel) 
-      call alloc(elg%ref, elg%nel) 
+      call alloc(elg%mm, FEDB(elg%type)%lnv, elg%nel)
+      call alloc(elg%ref, elg%nel)
       ic = 1
       do k = 1, melg%nel
         do j = 1, FEDB(melg%type)%lnf
@@ -627,13 +639,13 @@ if (FEDB(tp)%tdim > 2) then
             elg%mm(:, ic) = melg%mm(FEDB(melg%type)%face( 1:FEDB(elg%type)%lnv, j), k)
             elg%ref(ic)   = nrc(j,k)
             ic = ic + 1
-          end if  
+          end if
         end do
       end do
     end associate
     iel = iel - 1
   end if
-  call dealloc(nrc)
+  if (deall) call dealloc(nrc)
 end if
 
 !group for edges
@@ -645,24 +657,24 @@ if (FEDB(tp)%tdim > 1) then
       !in edges, nn is only relevant for Lagrange P2
       if (FEDB(elg%type)%lnn == FEDB(elg%type)%lnv + FEDB(elg%type)%lne) &
       call alloc(elg%nn, FEDB(elg%type)%lnn, elg%nel)
-      call alloc(elg%mm, FEDB(elg%type)%lnv, elg%nel) 
-      call alloc(elg%ref, elg%nel) 
+      call alloc(elg%mm, FEDB(elg%type)%lnv, elg%nel)
+      call alloc(elg%ref, elg%nel)
       ic = 1
       do k = 1, melg%nel
         do j = 1, FEDB(melg%type)%lne
           if (nra(j,k) /= 0) then
             if (FEDB(elg%type)%lnn == FEDB(elg%type)%lnv + FEDB(elg%type)%lne) &
-            elg%nn(:, ic) = melg%nn(FEDB(melg%type)%nedge(1:FEDB(elg%type)%lnn, j), k)          
+            elg%nn(:, ic) = melg%nn(FEDB(melg%type)%nedge(1:FEDB(elg%type)%lnn, j), k)
             elg%mm(:, ic) = melg%mm(FEDB(melg%type)%edge( 1:FEDB(elg%type)%lnv, j), k)
             elg%ref(ic)   = nra(j,k)
             ic = ic + 1
-          end if  
+          end if
         end do
       end do
     end associate
     iel = iel - 1
   end if
-  call dealloc(nra)
+  if (deall) call dealloc(nra)
 end if
 
 !group for vertices
@@ -672,8 +684,8 @@ if (FEDB(tp)%tdim > 0) then
       elg%nel = count(nrv > 0)
       elg%type = FEDB(melg%type)%v_type
       !in vertices, nn is not relevant
-      call alloc(elg%mm, FEDB(elg%type)%lnv, elg%nel) 
-      call alloc(elg%ref, elg%nel) 
+      call alloc(elg%mm, FEDB(elg%type)%lnv, elg%nel)
+      call alloc(elg%ref, elg%nel)
       ic = 1
       do k = 1, melg%nel
         do j = 1, FEDB(melg%type)%lnv
@@ -681,12 +693,12 @@ if (FEDB(tp)%tdim > 0) then
             elg%mm(1, ic) = melg%mm(j,k)
             elg%ref(ic)   = nrv(j,k)
             ic = ic + 1
-          end if  
+          end if
         end do
       end do
     end associate
   end if
-  call dealloc(nrv)
+  if (deall) call dealloc(nrv)
 end if
 
 end subroutine
@@ -720,7 +732,7 @@ do ip = 1, size(pmh%pc,1)
   do ig = 1, size(pmh%pc(ip)%el,1)
     associate(elg => pmh%pc(ip)%el(ig), tp => pmh%pc(ip)%el(ig)%type)
       if (FEDB(tp)%nver_eq_nnod) then
-        !Lagrange P1: create mm and erase nn      
+        !Lagrange P1: create mm and erase nn
         if (.not. allocated(elg%mm)) then
           if (.not.allocated(elg%nn)) call error('(module_pmh/build_vertices) neither mm nor nn are allocated: piece '//&
           &trim(string(ip))//', group '//trim(string(ig))//'; unable to build vertices')
@@ -744,33 +756,33 @@ do ip = 1, size(pmh%pc,1)
     end associate
   end do
   if (any(unalloc_mm_P2) .or. (.not. all_are_P1 .and. pmh%pc(ip)%nnod == size(pmh%pc(ip)%z,2))) then
-    !there are some unallocated mm for Lagrange P2 elements or z must be reconstructed: construct global vertex numbering 
+    !there are some unallocated mm for Lagrange P2 elements or z must be reconstructed: construct global vertex numbering
     nv2d = 0
     do ig = 1, size(pmh%pc(ip)%el,1)
       associate(elg => pmh%pc(ip)%el(ig), tp => pmh%pc(ip)%el(ig)%type)
         do k = 1, elg%nel
           do i = 1, FEDB(tp)%lnv
-            if (allocated(elg%mm)) then 
+            if (allocated(elg%mm)) then
               !elements have mm already constructed: save them in vert2node
-              pos = bsearch(vert2node, elg%mm(i,k), nv2d) 
+              pos = bsearch(vert2node, elg%mm(i,k), nv2d)
               if (pos < 0) then
                 call insert(vert2node, elg%mm(i,k), -pos, nv2d, fit=.false.)
-                nv2d = nv2d + 1 
+                nv2d = nv2d + 1
               end if
-            else 
-              !only nn is allocated; previous checkings ensure that it must be a Lagrange P2 element 
+            else
+              !only nn is allocated; previous checkings ensure that it must be a Lagrange P2 element
               if (elg%nn(i,k) == 0) call error('(module_pmh/build_vertices) node numbering is zero: piece '//trim(string(ip))//&
               &', group '//trim(string(ig))//', node '//trim(string(i))//', element '//trim(string(k))//'; unable to build vertex')
-              pos = bsearch(vert2node, elg%nn(i,k), nv2d) 
+              pos = bsearch(vert2node, elg%nn(i,k), nv2d)
               if (pos < 0) then
                 call insert(vert2node, elg%nn(i,k), -pos, nv2d, fit=.false.)
-                nv2d = nv2d + 1 
+                nv2d = nv2d + 1
               end if
             end if
           end do
-        end do  
+        end do
       end associate
-    end do    
+    end do
     call reduce(vert2node, nv2d)
     !nver: total number of vertices
     pmh%pc(ip)%nver = nv2d
@@ -800,7 +812,7 @@ do ip = 1, size(pmh%pc,1)
     end if
     !vertex coordinates
     associate(pi => pmh%pc(ip))
-      if (pi%nver == size(pi%z,2)) then 
+      if (pi%nver == size(pi%z,2)) then
         call info('(module_pmh/build_vertices) z has the correct number of columns although some mm for Lagrange P2 '//&
         &'elements where initially unallocated')
       elseif (pi%nnod == size(pi%z,2)) then !z stores node coord.: assume that i <= vert2node(i); thus z can be overwritten
@@ -824,7 +836,7 @@ do ip = 1, size(pmh%pc,1)
     else
       call error('(module_pmh/build_vertices) nver is still zero: piece '//trim(string(ip)))
     end if
-  end if      
+  end if
   if (pmh%pc(ip)%nver /= size(pmh%pc(ip)%z,2)) &
   call error('(module_pmh/build_vertices (3)) z has an incorrect number of columns: '//trim(string(size(pmh%pc(ip)%z,2)))//&
   &' while nver is '//trim(string(pmh%pc(ip)%nver))//' and nnod is '//trim(string(pmh%pc(ip)%nnod))//': piece '//trim(string(ip)))
@@ -914,7 +926,7 @@ end subroutine
 ! PRIVATE PROCEDURES
 !-----------------------------------------------------------------------
 !-----------------------------------------------------------------------
-! reorder_nodes_P2: ensure that mid-points in Lagrange P2 appear at the 
+! reorder_nodes_P2: ensure that mid-points in Lagrange P2 appear at the
 ! end of conectivity arrays
 !
 ! it must be called at the beginning of build_vertices
@@ -922,7 +934,7 @@ end subroutine
 subroutine reorder_nodes_P2(pmh)
 type(pmh_mesh), intent(inout) :: pmh
 integer :: ip, ig, k
-integer, allocatable :: inew(:) 
+integer, allocatable :: inew(:)
 character(maxpath) :: reorder_type
 
 !check what type of reorder must be applied
@@ -936,12 +948,12 @@ if (is_arg('-r')) then
   end select
 else
   reorder_type = 'hard'
-end if    
+end if
 do ip = 1, size(pmh%pc,1)
   do ig = 1, size(pmh%pc(ip)%el,1)
     associate(elg => pmh%pc(ip)%el(ig), tp => pmh%pc(ip)%el(ig)%type, z => pmh%pc(ip)%z)
       if (FEDB(tp)%nver_eq_nnod) then !Lagrange P1 elements, do nothing
-        continue      
+        continue
       elseif (tp == check_fe(.false.,  3, 2,  1, 0)) then
         !************************************* Edge, Lagrange P2 ********************************
         !reorder nn such that mid-points appear at the end
@@ -1074,7 +1086,7 @@ NODES: do i = 1, FEDB(tp)%lnn !nodes
     end if
   end do
   !elg%nn(i,k) is not a mid-point, so it is a vertex
-  nv = nv + 1    
+  nv = nv + 1
   newnn(nv) = elg%nn(i,k)
   inew (nv) = i
   if (nv > FEDB(tp)%lnv)  call error('(module_pmh/reorder_nodes_element_P2) too many vertices were found in a Lagrange P2 '//&
@@ -1086,7 +1098,7 @@ if (nv < FEDB(tp)%lnv)  call error('(module_pmh/reorder_nodes_element_P2) too fe
 &'; tolerance could be higher than the precision of the mesh. Use ''feconv -h'' to see available options')
 !identify mid-points and save it in PMH order
 do i = 1, FEDB(tp)%lnn !nodes
-  if (find_first(newnn == elg%nn(i,k)) > 0) cycle !it is a vertex
+  if (find_first(newnn, elg%nn(i,k)) > 0) cycle !it is a vertex
   do j = 1, FEDB(tp)%lne
     if (maxval(abs((z(:,newnn(FEDB(tp)%edge(1,j))) + z(:,newnn(FEDB(tp)%edge(2,j))))/2 - z(:,elg%nn(i,k)))) < 1e3*ztol) then
       inew (FEDB(tp)%lnv + j) = i
@@ -1104,11 +1116,11 @@ end subroutine
 subroutine positive_jacobian(pmh)
 type(pmh_mesh), intent(inout) :: pmh
 integer :: ip, ig, i, k, max_tdim
-integer, allocatable :: pos(:) 
+integer, allocatable :: pos(:)
 real(real64) ::  s, t, st(2)
 logical :: QJac(4) ,check
 real(real64) :: zz(2)=[0._real64, 0._real64],zo(2)=[0._real64, 1._real64],oz(2)=[1._real64, 0._real64]
-integer, allocatable :: tmp(:)
+!integer, allocatable :: tmp(:)
 
 !check whether the application of possitive jacobian (by default, positive jacobian is run)
 if (is_arg('-j')) then
@@ -1172,7 +1184,7 @@ do ip = 1, size(pmh%pc,1)
             call swap(elg%mm(1,k), elg%mm(2,k))
             call swap(elg%mm(3,k), elg%mm(4,k))
           end if
-          !counterclockwise orientation is not ensured by a positive jacobian in the (s,t)-plane: instead, check if 3rd component 
+          !counterclockwise orientation is not ensured by a positive jacobian in the (s,t)-plane: instead, check if 3rd component
           !of the normal vector is positive
           if ((z(1,elg%mm(2,k))-z(1,elg%mm(1,k)))*(z(2,elg%mm(4,k))-z(2,elg%mm(1,k))) - &
               (z(2,elg%mm(2,k))-z(2,elg%mm(1,k)))*(z(1,elg%mm(4,k))-z(1,elg%mm(1,k))) < 0._real64) then
@@ -1252,7 +1264,7 @@ function detDFT_pos(a1, a2, a3, a4) result(res)
 real(real64), intent(in) :: a1(3), a2(3), a3(3), a4(3)
 logical :: res
 
-res = (a2(1)-a1(1))*(a3(2)-a1(2))*(a4(3)-a1(3)) + (a2(3)-a1(3))*(a3(1)-a1(1))*(a4(2)-a1(2)) & 
+res = (a2(1)-a1(1))*(a3(2)-a1(2))*(a4(3)-a1(3)) + (a2(3)-a1(3))*(a3(1)-a1(1))*(a4(2)-a1(2)) &
     + (a2(2)-a1(2))*(a3(3)-a1(3))*(a4(1)-a1(1)) - (a2(3)-a1(3))*(a3(2)-a1(2))*(a4(1)-a1(1)) &
     - (a2(2)-a1(2))*(a3(1)-a1(1))*(a4(3)-a1(3)) - (a2(1)-a1(1))*(a3(3)-a1(3))*(a4(2)-a1(2)) > 0
 end function
@@ -1269,7 +1281,6 @@ subroutine cell2node_real_pmh(pmh)
   integer :: ncomp, lnn, nel, i, j, k
 
   np = 1 ! Only in the first parammeter
-  print*, ''
   call info('Converting every elementwise field as a nodewise ...')
   ! walk over all pieces
   do ip=1,size(pmh%pc,1)
@@ -1306,7 +1317,7 @@ subroutine cell2node_real_pmh(pmh)
               & ' group '//trim(string(ig)))
           nel = elg%nel
           lnn = FEDB(elg%type)%lnn
-    
+
           do ifi=1, n_cell_fi
             if(.not. allocated(elg%fi(ifi)%val)) &
               & call error('Not allocated field '//trim(string(ifi))// &
@@ -1385,21 +1396,21 @@ function get_piece_num_fields(pc, location) result(res)
 
   ! Count node fields
   if(fi_loc==1 .or. fi_loc==3) then
-    if(allocated(pc%fi)) then 
+    if(allocated(pc%fi)) then
       res = res+size(pc%fi,1)
     endif
   endif
 
   ! Count cell fields
   if(fi_loc==2 .or. fi_loc==3) then
-    if(allocated(pc%el)) then 
+    if(allocated(pc%el)) then
       do i=1,size(pc%el,1)
         if(allocated(pc%el(i)%fi)) aux = max(size(pc%el(i)%fi,1),aux)
       enddo
     endif
     res = res + aux
   endif
-  
+
 end function
 
 !--------------------------------------------------------------------
@@ -1431,8 +1442,8 @@ function get_field_num_shots(pmh,fieldname) result(res)
 
   res = 0
 
-  do ip=1,size(pmh%pc) 
-    ! node fields 
+  do ip=1,size(pmh%pc)
+    ! node fields
     if(allocated(pmh%pc(ip)%fi)) then
       do ifi=1, size(pmh%pc(ip)%fi,1)
         if(trim(adjustl(pmh%pc(ip)%fi(ifi)%name)) == trim(adjustl(fieldname))) then
@@ -1469,8 +1480,8 @@ subroutine get_num_shots(pmh, res)
   integer                          :: ip, ig, ifi, nfield
 
   nfield = 0
-  do ip=1,size(pmh%pc) 
-    ! node fields 
+  do ip=1,size(pmh%pc)
+    ! node fields
     if(allocated(pmh%pc(ip)%fi)) then
       do ifi=1, size(pmh%pc(ip)%fi,1)
         nfield = nfield + 1
@@ -1507,25 +1518,44 @@ subroutine remove_coordinate(pmh, dim)
   real(real64), allocatable     :: tempz(:,:)
 
   if(.not. allocated(pmh%pc)) call error('Not allocated mesh')
-
   call info('Removing component '//string(dim))
-
   do i=1,size(pmh%pc,1)
     if(pmh%pc(i)%dim<dim) call error('Not enought components. Cannot downgrade space dimension.')
-
     if(allocated(tempz)) deallocate(tempz)
     newdim = pmh%pc(i)%dim-1
     allocate(tempz(newdim, pmh%pc(i)%nver))
-
-!    tempz(1:newdim,:) = pmh%pc(i)%z([1:dim-1,dim+1:pmh%pc(i)%dim],:)
+    !tempz(1:newdim,:) = pmh%pc(i)%z([1:dim-1,dim+1:pmh%pc(i)%dim],:)
     tempz(1:newdim,:) = pmh%pc(i)%z((/(j,j=1,dim-1),(j,j=dim+1,pmh%pc(i)%dim)/),:)
     call move_alloc(from=tempz,to=pmh%pc(i)%z)
-
     pmh%pc(i)%dim = newdim
-
   enddo
- 
 end subroutine
 
+
+!--------------------------------------------------------------------
+! change_pmh_references: changes pmh references
+!--------------------------------------------------------------------
+subroutine change_pmh_references(pmh, chref)
+type(pmh_mesh), intent(inout) :: pmh
+integer,        intent(in)    :: chref(:)
+integer :: k, ip, ig
+
+call info('Changing references for topological dimension '//trim(string(chref(1)))//'.')
+if (allocated(pmh%pc)) then
+  do ip = 1, size(pmh%pc,1)
+    if (allocated(pmh%pc(ip)%el)) then
+      do ig = 1, size(pmh%pc(ip)%el,1)
+        associate(elg => pmh%pc(ip)%el(ig), tp => pmh%pc(ip)%el(ig)%type)
+          if (FEDB(tp)%tdim == chref(1)) then !same topological dimension
+            do k = 2, size(chref,1), 2
+              where (elg%ref == chref(k)) elg%ref = chref(k+1)
+            end do
+          end if
+        end associate
+      end do
+    end if
+  end do
+end if
+end subroutine
 
 end module

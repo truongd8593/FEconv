@@ -1,4 +1,4 @@
-module module_freefem
+module module_freefem_fcnv
 !-----------------------------------------------------------------------
 ! Module to manage FreeFem++ MSH and MESH meshes
 !
@@ -12,15 +12,10 @@ module module_freefem
 ! save_freefem_msh:  save a PMH structure into a MSH  (FreeFem++) file
 ! save_freefem_mesh: save a PMH structure into a MESH (FreeFem++) file
 !-----------------------------------------------------------------------
-use module_compiler_dependant, only: iostat_end
-use module_os_dependant, only: maxpath
-use module_report, only: error, info
-use module_convers, only: string, int, word_count, lcase, adjustlt
-use module_alloc, only: alloc, dealloc 
-use module_args, only: is_arg, get_post_arg
-use module_feed, only: feed, empty
-use module_fe_database_pmh, only: FEDB, check_fe
-use module_pmh, only: pmh_mesh, build_vertices
+use basicmod, only: iostat_end, maxpath, error, info, string, int, word_count, lcase, adjustlt, &
+                    alloc, dealloc, is_arg, get_post_arg, feed, empty
+use module_fe_database_pmh_fcnv, only: FEDB, check_fe
+use module_pmh_fcnv, only: pmh_mesh, build_vertices
 implicit none
 
 !Private procedures
@@ -33,7 +28,7 @@ contains
 !-----------------------------------------------------------------------
 subroutine load_freefem_msh(filename, iu, pmh)
 character(*), intent(in) :: filename
-integer,      intent(in) :: iu      
+integer,      intent(in) :: iu
 type(pmh_mesh), intent(inout) :: pmh
 integer :: res, i, j, k, ios
 character(maxpath) :: cad, str
@@ -47,7 +42,7 @@ if (allocated(pmh%pc)) then
 else
   allocate(pmh%pc(1), stat = res, errmsg = cad)
   if (res /= 0) call error('(module_freefem/load_freefem_msh) Unable to allocate piece: '//trim(cad))
-end if  
+end if
 allocate(pmh%pc(1)%el(3), stat = res, errmsg = cad)
 if (res /= 0) call error('(module_freefem/load_freefem_msh) Unable to allocate groups: '//trim(cad))
 
@@ -59,12 +54,12 @@ associate (m => pmh%pc(1)) !m: current mesh
   !read nver, nel, nel(boundary)
   read (unit=iu, fmt=*, iostat=ios) m%nver, m%el(1)%nel, m%el(2)%nel
   if (ios /= 0) call error('read (str), #'//trim(string(ios)))
-  !determine dim (and therefore, max_tdim) reading the first vertex coordinates 
+  !determine dim (and therefore, max_tdim) reading the first vertex coordinates
   read (unit=iu, fmt='(a)', iostat=ios) str
   if (ios /= 0) call error('read (str), #'//trim(string(ios)))
   if (word_count(str) == 3+1) then
     m%dim = 3
-    m%el(1)%type = check_fe(.true., 4, 4, 6, 4) !tetrahedra 
+    m%el(1)%type = check_fe(.true., 4, 4, 6, 4) !tetrahedra
     m%el(2)%type = check_fe(.true., 3, 3, 3, 0) !triangles
   elseif (word_count(str) == 2+1) then
     m%dim = 2
@@ -91,14 +86,20 @@ associate (m => pmh%pc(1)) !m: current mesh
   do j = 1, m%nver; m%el(3)%mm(1,j) = j; end do
   !read z
   backspace(iu)
-  read (unit=iu, fmt=*, iostat=ios) ((m%z(i,j),  i=1,m%dim), m%el(3)%ref(j), j=1,m%nver)
-  if (ios /= 0) call error('(module_freefem/load_freefem_msh) unable to read z: #'//trim(string(ios)))
+  if (m%nver > 0) then
+    read (unit=iu, fmt=*, iostat=ios) ((m%z(i,j),  i=1,m%dim), m%el(3)%ref(j), j=1,m%nver)
+    if (ios /= 0) call error('(module_freefem/load_freefem_msh) unable to read z: #'//trim(string(ios)))
+  end if  
   !read el(1)%mm
-  read (unit=iu, fmt=*, iostat=ios) ((m%el(1)%mm(i,k),  i=1,FEDB(m%el(1)%type)%lnv), m%el(1)%ref(k), k=1,m%el(1)%nel)
-  if (ios /= 0) call error('(module_freefem/load_freefem_msh) unable to read el(1)%mm: #'//trim(string(ios)))
+  if (m%el(1)%nel > 0) then
+    read (unit=iu, fmt=*, iostat=ios) ((m%el(1)%mm(i,k),  i=1,FEDB(m%el(1)%type)%lnv), m%el(1)%ref(k), k=1,m%el(1)%nel)
+    if (ios /= 0) call error('(module_freefem/load_freefem_msh) unable to read el(1)%mm: #'//trim(string(ios)))
+  end if
   !read el(2)%mm
-  read (unit=iu, fmt=*, iostat=ios) ((m%el(2)%mm(i,k),  i=1,FEDB(m%el(2)%type)%lnv), m%el(2)%ref(k), k=1,m%el(2)%nel)
-  if (ios /= 0) call error('(module_freefem/load_freefem_msh) unable to read el(2)%mm: #'//trim(string(ios)))
+  if (m%el(2)%nel > 0) then
+    read (unit=iu, fmt=*, iostat=ios) ((m%el(2)%mm(i,k),  i=1,FEDB(m%el(2)%type)%lnv), m%el(2)%ref(k), k=1,m%el(2)%nel)
+    if (ios /= 0) call error('(module_freefem/load_freefem_msh) unable to read el(2)%mm: #'//trim(string(ios)))
+  end if
 end associate
 call build_vertices(pmh)
 end subroutine
@@ -108,7 +109,7 @@ end subroutine
 !-----------------------------------------------------------------------
 subroutine load_freefem_mesh(filename, iu, pmh)
 character(*), intent(in) :: filename
-integer,      intent(in) :: iu      
+integer,      intent(in) :: iu
 type(pmh_mesh), intent(inout) :: pmh
 integer :: res, i, j, k, ios
 character(maxpath) :: cad
@@ -122,7 +123,7 @@ if (allocated(pmh%pc)) then
 else
   allocate(pmh%pc(1), stat = res, errmsg = cad)
   if (res /= 0) call error('(module_freefem/load_freefem_mesh) Unable to allocate piece: '//trim(cad))
-end if  
+end if
 allocate(pmh%pc(1)%el(3), stat = res, errmsg = cad)
 if (res /= 0) call error('(module_freefem/load_freefem_mesh) Unable to allocate groups: '//trim(cad))
 !open file
@@ -135,7 +136,7 @@ rewind(iu)
 
 associate (m => pmh%pc(1)) !m: current mesh
   m%dim = 3
-  m%el(1)%type = check_fe(.true., 4, 4, 6, 4) !tetrahedra 
+  m%el(1)%type = check_fe(.true., 4, 4, 6, 4) !tetrahedra
   m%el(2)%type = check_fe(.true., 3, 3, 3, 0) !triangles
   !read nver and z
   res = search_mark(iu, 'Vertices')
@@ -198,7 +199,7 @@ else !save all pieces
   call alloc(piece2save, size(pmh%pc,1))
   piece2save = [(i, i=1, size(pmh%pc,1))]
 end if
-if (is_arg('-glue')) then 
+if (is_arg('-glue')) then
   call info('(module_freefem/save_freefem) option -glue not implemented yet')
 end if
 
@@ -215,9 +216,9 @@ do ipp = 1, size(piece2save,1)
         call info('(module_freefem/save_freefem) element type '//trim(FEDB(tp)%desc)//' found; those elements cannot be saved'//&
         &' in FreeFem++ format and they will be discarded')
         cycle
-      end if  
+      end if
       !check whether there is only one type of element for each topological dimension
-      if (type_by_tdim( FEDB(tp)%tdim ) == 0) then  
+      if (type_by_tdim( FEDB(tp)%tdim ) == 0) then
         type_by_tdim( FEDB(tp)%tdim ) = tp
       elseif (type_by_tdim( FEDB(tp)%tdim ) /= tp) then
         call error('(module_freefem/save_freefem) more that one type of element is defined for the same topological dimension: '//&
@@ -225,11 +226,11 @@ do ipp = 1, size(piece2save,1)
       end if
     end associate
   end do
-  max_tdim = 0 
+  max_tdim = 0
   do i = 1, 3
     if (type_by_tdim(i) > 0) max_tdim  = i
   end do
-  if (prev_max_tdim == 0) then  
+  if (prev_max_tdim == 0) then
     prev_max_tdim = max_tdim
   elseif (prev_max_tdim /= max_tdim) then
     call error('(module_freefem/save_freefem) there are pieces with different maximal topological dimension; unable to convert '//&
@@ -241,7 +242,7 @@ dim = -1
 do ipp = 1, size(piece2save,1)
   ip = piece2save(ipp)
   !check whether there is only one coordinates dimension for all pieces
-  if (dim == -1) then  
+  if (dim == -1) then
     dim = pmh%pc(ip)%dim
   elseif (pmh%pc(ip)%dim /= dim) then
     call error('(module_freefem/save_freefem) different coordinates dimensions in different pieces: '//&
@@ -273,8 +274,8 @@ el_piece(0) = 0; bnd_piece(0) = 0; nver_piece(0) = 0
 do ipp = 1, size(piece2save,1)
   ip = piece2save(ipp)
   nver_piece(ipp) = nver_piece(ipp-1) + pmh%pc(ipp)%nver
-  el_piece(ipp)   =   el_piece(ipp-1) 
-  bnd_piece(ipp)  =  bnd_piece(ipp-1) 
+  el_piece(ipp)   =   el_piece(ipp-1)
+  bnd_piece(ipp)  =  bnd_piece(ipp-1)
   do ig = 1, size(pmh%pc(ip)%el, 1)
     associate(elg => pmh%pc(ip)%el(ig)) !elg: current group
       if (elg%type == el_type) then
@@ -365,7 +366,7 @@ else !save all pieces
   call alloc(piece2save, size(pmh%pc,1))
   piece2save = [(i, i=1, size(pmh%pc,1))]
 end if
-if (is_arg('-glue')) then 
+if (is_arg('-glue')) then
   call info('(module_freefem/save_freefem) option -glue not implemented yet')
 end if
 
@@ -382,9 +383,9 @@ do ipp = 1, size(piece2save,1)
         call info('(module_freefem/save_freefem) element type '//trim(FEDB(tp)%desc)//' found; those elements cannot be saved'//&
         &' in FreeFem++ format and they will be discarded')
         cycle
-      end if  
+      end if
       !check whether there is only one type of element for each topological dimension
-      if (type_by_tdim( FEDB(tp)%tdim ) == 0) then  
+      if (type_by_tdim( FEDB(tp)%tdim ) == 0) then
         type_by_tdim( FEDB(tp)%tdim ) = tp
       elseif (type_by_tdim( FEDB(tp)%tdim ) /= tp) then
         call error('(module_freefem/save_freefem) more that one type of element is defined for the same topological dimension: '//&
@@ -392,11 +393,11 @@ do ipp = 1, size(piece2save,1)
       end if
     end associate
   end do
-  max_tdim = 0 
+  max_tdim = 0
   do i = 1, 3
     if (type_by_tdim(i) > 0) max_tdim  = i
   end do
-  if (prev_max_tdim == 0) then  
+  if (prev_max_tdim == 0) then
     prev_max_tdim = max_tdim
   elseif (prev_max_tdim /= max_tdim) then
     call error('(module_freefem/save_freefem) there are pieces with different maximal topological dimension; unable to convert '//&
@@ -409,7 +410,7 @@ dim = -1
 do ipp = 1, size(piece2save,1)
   ip = piece2save(ipp)
   !check whether there is only one coordinates dimension for all pieces
-  if (dim == -1) then  
+  if (dim == -1) then
     dim = pmh%pc(ip)%dim
   elseif (pmh%pc(ip)%dim /= dim) then
     call error('(module_freefem/save_freefem) different coordinates dimensions in different pieces: '//&
@@ -431,8 +432,8 @@ el_piece(0) = 0; bnd_piece(0) = 0; nver_piece(0) = 0
 do ipp = 1, size(piece2save,1)
   ip = piece2save(ipp)
   nver_piece(ipp) = nver_piece(ipp-1) + pmh%pc(ipp)%nver
-  el_piece(ipp)  =  el_piece(ipp-1) 
-  bnd_piece(ipp)  =  bnd_piece(ipp-1) 
+  el_piece(ipp)  =  el_piece(ipp-1)
+  bnd_piece(ipp)  =  bnd_piece(ipp-1)
   do ig = 1, size(pmh%pc(ip)%el, 1)
     associate(elg => pmh%pc(ip)%el(ig)) !elg: current group
       if (elg%type == check_fe(.true., 4, 4, 6, 4)) then
@@ -512,7 +513,7 @@ end subroutine
 !-----------------------------------------------------------------------
 !-----------------------------------------------------------------------
 ! search_mark: searches for a mark
-! RETURN: 0 if the mark is found; iostat_end if end-of-file is found; 
+! RETURN: 0 if the mark is found; iostat_end if end-of-file is found;
 ! non-zero otherwise
 !-----------------------------------------------------------------------
 function search_mark(id, mark) result(res)

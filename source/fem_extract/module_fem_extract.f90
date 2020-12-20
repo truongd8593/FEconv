@@ -1,4 +1,4 @@
-module module_fem_extract
+module module_fem_extract_fcnv
 !-----------------------------------------------------------------------
 ! Module for fem extractions
 !
@@ -53,35 +53,17 @@ module module_fem_extract
 !      a) The cell field is given by vn
 !      b) The node field is returned in vc
 !-----------------------------------------------------------------------
-use module_fem_extract_real
-use module_fem_extract_complex
+use module_fem_extract_real_fcnv
+use module_fem_extract_complex_fcnv
 implicit none
 
 !Constants
 integer, parameter, private :: real64 = selected_real_kind(15, 307)
 
 !Private procedures
-private :: extract_subdomain, extract_z
+private :: extract_z
 
 contains
-!--------------------------------------------------------------------
-! extract_mesh: extract a submesh from a global mesh selecting 
-! only the elements with some particular subdomain numbers
-!--------------------------------------------------------------------
-subroutine extract_mesh(nver, mm, z, nsd, nsd0, submm, subz, globv, globel)
-integer,                      intent(in) :: nver ! total number of vertices (global mesh)
-integer,      dimension(:,:), intent(in) :: mm   ! conectivities (global mesh)
-real(real64), dimension(:,:), intent(in) :: z    ! vertex coordinates (global mesh)
-integer,      dimension(:),   intent(in) :: nsd  ! subdomain numbers (global mesh)
-integer,      dimension(:),   intent(in) :: nsd0 ! subdomain numbers to extract
-integer, dimension(:,:),      allocatable, intent(out) :: submm  ! conectivities (submesh)
-real(real64), dimension(:,:), allocatable, intent(out) :: subz   ! vertex coordinates (submesh)
-integer,      dimension(:),   allocatable, intent(out) :: globv  ! return global vertex index
-integer,      dimension(:),   allocatable, intent(out) :: globel ! return global elem.  index
-
-call extract_subdomain(nver, mm, nsd, nsd0, submm, globv, globel)
-call extract_z(z, subz, globv)
-end subroutine
 
 !--------------------------------------------------------------------
 ! extract_ref: extract references

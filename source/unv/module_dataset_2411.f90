@@ -1,4 +1,4 @@
-module module_dataset_2411
+module module_dataset_2411_fcnv
 !-----------------------------------------------------------------------
 ! Module for dataset_2411 class
 ! Last update: 15/07/2008
@@ -25,11 +25,10 @@ module module_dataset_2411
 !    6.0000000000000000D+00   1.0000000000000000D+00   0.0000000000000000D+00
 !     -1
 !-----------------------------------------------------------------------
-use module_COMPILER_DEPENDANT, only: real64
-use module_ALLOC
-use module_dataset
+use basicmod
+use module_dataset_fcnv
 !use module_mesh
-use module_pmh, only: piece
+use module_pmh_fcnv, only: piece
 implicit none
 
 contains
@@ -69,7 +68,7 @@ logical :: fit(2)
     if (ios /= 0) call error('dataset_2411/read, #'//trim(string(ios)))
   ! copy to mm
     fit = [.true., .false.]
-    call set_col(pc%z, x(1:pc%dim), Field1, fit)
+    call set(2, pc%z, x(1:pc%dim), Field1, fit)
     pc%nnod = max(pc%nnod, Field1)
   end do
 
